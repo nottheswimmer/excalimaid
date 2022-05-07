@@ -119,7 +119,7 @@ graph
    * flowchart
    * classDiagram
    * stateDiagram-v2
- * This mainly supports
+ * For these diagrams, not every feature is supported. This supports
    * text
    * arrows
    * rectangles
