@@ -126,9 +126,9 @@ graph
    * diamonds
    * rounded shapes
    * links (e.g. `click B "http://www.github.com" "(Ignored tooltip)"`)
+   * [subgraphs](https://mermaid-js.github.io/mermaid/#/flowchart?id=subgraphs)
  * Some things have buggy implementations like
-   * subgraphs
-   * circles
+   * circles when in a flowchart (it's fine for graphs)
  * Some things for these graph types aren't supported such as
    * [styling a node](https://mermaid-js.github.io/mermaid/#/flowchart?id=styling-a-node)
    * [styling links](https://mermaid-js.github.io/mermaid/#/flowchart?id=styling-links)

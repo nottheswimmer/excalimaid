@@ -380,21 +380,31 @@ class Element:
 
     @classmethod
     def from_svg_edge_path(cls, edge_path: bs4.element.Tag) -> list["Element"]:
-        self = cls(TypeEnum.ARROW)
-
-        # Get the ID from the ID attribute
-        self.id = edge_path["id"]
-
-        # Get the opacity from the style
-        edge_path_style = parse_style(edge_path.get("style"))
-        if edge_path_style.get("opacity"):
-            self.opacity = int(edge_path_style["opacity"] * 100)
-
         # The element looks like this:
         # <g class="edgePath LS-A LE-B" id="L-A-B" style="opacity: 1;"><path class="path" d="M37.4375,85.60759244689221L41.604166666666664,83.79799370574351C45.770833333333336,81.9883949645948,54.104166666666664,78.36919748229741,62.4375,78.37778055933052C70.77083333333333,78.38636363636364,79.10416666666667,82.02272727272727,83.27083333333333,83.84090909090908L87.4375,85.6590909090909" marker-end="url(#arrowhead48)" style="fill:none"></path><defs><marker id="arrowhead48" markerheight="6" markerunits="strokeWidth" markerwidth="8" orient="auto" refx="9" refy="5" viewbox="0 0 10 10"><path class="arrowheadPath" d="M 0 0 L 10 5 L 0 10 z" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker></defs></g>
 
         # Get the path from the path attribute
         path = edge_path.find("path")
+
+        if path is None:
+            return []
+
+        selves = cls.from_svg_path(path)
+        for self in selves:
+            # Get the ID from the ID attribute
+            self.id = edge_path["id"]
+
+            # Get the opacity from the style
+            edge_path_style = parse_style(edge_path.get("style"))
+            if edge_path_style.get("opacity"):
+                self.opacity = int(edge_path_style["opacity"] * 100)
+
+        return selves
+
+
+    @classmethod
+    def from_svg_path(cls, path: bs4.element.Tag) -> List["Element"]:
+        self = cls(TypeEnum.LINE)
 
         # Get the other points
         d = path["d"].replace(",", " ").split()
@@ -425,38 +435,39 @@ class Element:
             else:
                 self.stroke_style = StrokeStyle.DOTTED
 
-        def pop_x_y():
-            x, y = d.pop(0), d.pop(0)
-            assert x[0].isalpha()
-            if len(x) == 1:
-                x = y
-                y = d.pop(0)
+        flags = "MmLlHhVvCcSsQqTtAaZz"
+
+        def pop_elts(n: int):
+            elts = []
+            for _ in range(n):
+                elts.append(d.pop(0))
+            letter = elts[0][0]
+            assert letter in flags, (letter, elts)
+            if len(elts[0]) == 1:
+                elts.pop(0)
+                elts.append(d.pop(0))
             else:
-                x = x[1:]
-            for c in "LC":
-                if c in y:
-                    y, put_back = y.split(c, 1)
+                elts[0] = elts[0][1:]
+            for c in flags:
+                if c in elts[-1]:
+                    elts[-1], put_back = elts[-1].split(c, 1)
                     d.insert(0, c + put_back)
                     break
-            return float(x), float(y)
+
+            # All subsequent sets of parameters are considered implicit commands
+            if d and d[0][0] not in flags:
+                d[0][0] = letter + d[0][0]
+
+            return [float(x) for x in elts]
 
         def pop_x1_y1_x2_y2_x_y():
-            x1, y1, x2, y2, x, y = d.pop(0), d.pop(0), d.pop(0), d.pop(0), d.pop(0), d.pop(0)
-            assert x1[0].isalpha()
-            if len(x1) == 1:
-                x1 = y1
-                y1 = x2
-                x2 = y2
-                y2 = x
-                x = d.pop(0)
-            else:
-                x1 = x1[1:]
-            for c in "LC":
-                if c in y:
-                    y, put_back = y.split(c, 1)
-                    d.insert(0, c + put_back)
-                    break
-            return float(x1), float(y1), float(x2), float(y2), float(x), float(y)
+            return pop_elts(6)
+
+        def pop_x_y():
+            return pop_elts(2)
+
+        def pop_rx_ry_angle_largearcflag_sweepflag_dx_dy():
+            return pop_elts(7)
 
         cur_x, cur_y = pop_x_y()
 
@@ -490,11 +501,19 @@ class Element:
                          [next_x - self.x, next_y - self.y]]
 
                 curve = bezier_curve_recursive(curve, 0.1)
-                # if len(curve) > 10:
-                #     curve = curve[:-2]
-
                 self.points.extend(curve)
 
+                cur_x, cur_y = next_x, next_y
+            elif d[0][0] == "a":
+                rx, ry, angle, largearcflag, sweepflag, dx, dy = pop_rx_ry_angle_largearcflag_sweepflag_dx_dy()
+                next_x, next_y = cur_x + dx, cur_y + dy
+                curve = [[next_x - self.x, next_y - self.y]]
+                self.points.extend(curve)
+                cur_x, cur_y = next_x, next_y
+            elif d[0][0] == "l":
+                next_dx, next_dy = pop_x_y()
+                next_x, next_y = cur_x + next_dx, cur_y + next_dy
+                self.points.append([next_x - self.x, next_y - self.y])
                 cur_x, cur_y = next_x, next_y
             elif d[0][0] in "zZ":
                 """
@@ -506,36 +525,18 @@ class Element:
             else:
                 raise Exception("Unknown path command: " + d[0])
 
-        # a, b, c = path["d"].split("L")
-        # start_x, start_y = a[1:].split(",")
-        # end_x, end_y = c.split(",")
-        # xys = []
-        # xys.append(end_x)
-        # xys.append(end_y)
-        #
-        # self.x = float(start_x)
-        # self.y = float(start_y)
-        # self.points = [[0., 0.]]
-        #
-        # for x, y in zip(xys[0::2], xys[1::2]):
-        #     if "C" in x:
-        #         x = x.split("C")[1]
-        #     if "C" in y:
-        #         y = y.split("C")[1]
-        #     x = float(x)
-        #     y = float(y)
-        #     x -= self.x
-        #     y -= self.y
-        #     self.points.append([x, y])
-
         self.width = max(x for x, y in self.points) - min(x for x, y in self.points)
         self.height = max(y for x, y in self.points) - min(y for x, y in self.points)
 
         # Check for marker-start
         if path.get("marker-start"):
             self.start_arrowhead = Arrowhead.TRIANGLE
-        if path.get("marker-end") or not self.start_arrowhead:
+            self.type = TypeEnum.ARROW
+        if path.get("marker-end"):
             self.end_arrowhead = Arrowhead.TRIANGLE
+            self.type = TypeEnum.ARROW
+
+        print("Path:", self.points)
 
         return [self]
 
@@ -663,6 +664,19 @@ class Element:
                 circ.bound_elements.append(BoundElement(txt.id, txt.type))
             objs.append(circ)
 
+        path = node.find("path")
+        if path:
+            pth = cls.from_svg_path(path)[0]
+            pth.y += tsfm_y
+            pth.x += tsfm_x
+            pth.x -= pth.width / 2
+            pth.y -= pth.height / 2
+            pth.bound_elements = []
+            for txt in joiner_objs:
+                txt.container_id = pth.id
+                pth.bound_elements.append(BoundElement(txt.id, txt.type))
+            objs.append(pth)
+
         group_id = random_id()
         for obj in objs:
             obj.group_ids = [group_id]
@@ -675,6 +689,17 @@ class Element:
     def from_svg_rectangle(cls, rectangle: bs4.element.Tag, include_xy=False) -> list["Element"]:
         # <rect height="19" rx="0" ry="0" width="58.203125"></rect>
         self: 'Element' = cls(TypeEnum.RECTANGLE)
+
+        rx = float(rectangle.get("rx") or "0")
+        ry = float(rectangle.get("ry") or "0")
+        print("RXRY", rx, ry)
+        if rx or ry:
+            self.stroke_sharpness = StrokeSharpness.ROUND
+
+            if (rx - ry) < 1 and (rx > 15 or ry > 15):
+                # Pretty sure that's an ellipse
+                self.type = TypeEnum.ELLIPSE
+
         self.height = float(rectangle["height"])
         self.width = float(rectangle["width"])
         if include_xy:
@@ -682,8 +707,6 @@ class Element:
                 self.x = float(rectangle["x"])
             if rectangle.get("y", "0") != "0":
                 self.y = float(rectangle["y"])
-        if (rectangle.get("rx") and rectangle.get("rx") != "0") or (rectangle.get("ry") and rectangle.get("ry") != "0"):
-            self.stroke_sharpness = StrokeSharpness.ROUND
         return [self]
 
     @classmethod
