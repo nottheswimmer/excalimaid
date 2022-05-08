@@ -184,6 +184,16 @@ def parse_style(style: Optional[str]) -> dict:
     return out
 
 
+def parse_transform(transform: Optional[str]) -> (float, float):
+    if not transform:
+        return 0.0, 0.0
+    transform = str(transform)
+    m = re.match(r"translate\(([-\d\.]+),\s*([-\d\.]+)\s*\)", transform)
+    if not m:
+        return 0.0, 0.0
+    return float(m.group(1)), float(m.group(2))
+
+
 @dataclass
 class Element:
     type: TypeEnum
@@ -781,15 +791,23 @@ class Element:
 
                 elements += rect_elts + g_elts
 
-                for g_elt in g_elts:
-                    g_elt.x += g_elt.width / 2
-
                 group_id = g.get('id', random_id())
+
+                c_tsfm_x, c_tsfm_y = parse_transform(cluster.get('transform'))
                 for elt in g_elts + rect_elts:
                     if not elt.group_ids:
                         elt.group_ids = [group_id]
                     else:
                         elt.group_ids.append(group_id)
+                    elt.x += c_tsfm_x
+                    elt.y += c_tsfm_y
+
+
+                # For some reason, flowcharts (which have no transform) have the text slightly offset. This doesn't
+                #  apply to graphs (which have a transform and the text is not offset).
+                if (c_tsfm_x, c_tsfm_y) == (0.0, 0.0):
+                    for g_elt in g_elts:
+                        g_elt.x += g_elt.width / 2
 
                 print("RECT_ELTS", rect_elts)
 
