@@ -1,5 +1,4 @@
 import json
-import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -11,9 +10,12 @@ from uuid import uuid4
 import bs4
 from bs4 import BeautifulSoup
 
+PREFER_DASHED_TO_DOTTED = True
+
 
 def random_id() -> str:
     return uuid4().hex[:16]
+
 
 @dataclass
 class Excalidraw:
@@ -163,6 +165,25 @@ class VerticalAlign(Enum):
     TOP = "top"
 
 
+def parse_style(style: Optional[str]) -> dict:
+    if not style:
+        return {}
+    style = str(style)
+    out = {}
+    for kv in style.split(";"):
+        if ":" not in kv:
+            continue
+        k, v = kv.split(":", 1)
+        k = k.strip().lower()
+        v = v.strip().lower()
+        try:
+            v = float(v)
+        except ValueError:
+            pass
+        out[k] = v
+    return out
+
+
 @dataclass
 class Element:
     type: TypeEnum
@@ -177,9 +198,9 @@ class Element:
     roughness: int = 0
     opacity: int = 100
     stroke_sharpness: StrokeSharpness = StrokeSharpness.SHARP
-    seed: int = field(default_factory=lambda: randrange(0, 2**31))
+    seed: int = field(default_factory=lambda: randrange(0, 2 ** 31))
     version: int = 1
-    version_nonce: int = field(default_factory=lambda: randrange(0, 2**31))
+    version_nonce: int = field(default_factory=lambda: randrange(0, 2 ** 31))
     is_deleted: bool = False
     updated: int = field(default_factory=lambda: int(time.time() * 1000))
     angle: int = 0
@@ -355,7 +376,9 @@ class Element:
         self.id = edge_path["id"]
 
         # Get the opacity from the style
-        self.opacity = float(edge_path["style"].split("opacity:")[1].split(";")[0]) * 100 if "opacity" in edge_path["style"] else 100
+        edge_path_style = parse_style(edge_path.get("style"))
+        if edge_path_style.get("opacity"):
+            self.opacity = int(edge_path_style["opacity"] * 100)
 
         # The element looks like this:
         # <g class="edgePath LS-A LE-B" id="L-A-B" style="opacity: 1;"><path class="path" d="M37.4375,85.60759244689221L41.604166666666664,83.79799370574351C45.770833333333336,81.9883949645948,54.104166666666664,78.36919748229741,62.4375,78.37778055933052C70.77083333333333,78.38636363636364,79.10416666666667,82.02272727272727,83.27083333333333,83.84090909090908L87.4375,85.6590909090909" marker-end="url(#arrowhead48)" style="fill:none"></path><defs><marker id="arrowhead48" markerheight="6" markerunits="strokeWidth" markerwidth="8" orient="auto" refx="9" refy="5" viewbox="0 0 10 10"><path class="arrowheadPath" d="M 0 0 L 10 5 L 0 10 z" style="stroke-width: 1; stroke-dasharray: 1, 0;"></path></marker></defs></g>
@@ -367,14 +390,30 @@ class Element:
         d = path["d"].replace(",", " ").split()
 
         # Get the stroke width if it exists
-        try:
-            stroke_width = float(path["style"].split("stroke-width:")[1].split(";")[0].removesuffix("px")) if "stroke-width" in path["style"] else 1
-        except Exception as e:
-            print(f"Error parsing stroke width: {e}")
-            stroke_width = 1
+        path_style = parse_style(path.get("style"))
+        if "stroke-width" in path_style:
+            stroke_width = path_style["stroke-width"]
+            try:
+                if isinstance(stroke_width, str):
+                    stroke_width = float(stroke_width.removesuffix("px"))
+                    # Any stroke width of 2px or smaller should just be set to 1. For example,
+                    #  a dotted line has 2px stroke width and a regular line has default stroke width
+                    #  but they're visually the same.
+                    if stroke_width > 2:
+                        self.stroke_width = stroke_width
+            except Exception as e:
+                print(f"Error parsing stroke width: {e}")
 
-        if stroke_width > 1:
-            self.stroke_width = 4
+        # This only looks different dashed lines but it looks way better
+        self.stroke_sharpness = StrokeSharpness.ROUND
+
+        if "stroke-dasharray" in path_style:
+            # It might make sense canonically to do dots here instead of dashes but
+            #  dashed lines look better IMHO and there's no way to do dashed in mermaid.js
+            if PREFER_DASHED_TO_DOTTED:
+                self.stroke_style = StrokeStyle.DASHED
+            else:
+                self.stroke_style = StrokeStyle.DOTTED
 
         def pop_x_y():
             x, y = d.pop(0), d.pop(0)
@@ -432,13 +471,13 @@ class Element:
         while d:
             if d[0][0] == "L":
                 next_x, next_y = pop_x_y()
-                self.points.append([next_x-self.x, next_y-self.y])
+                self.points.append([next_x - self.x, next_y - self.y])
                 cur_x, cur_y = next_x, next_y
             elif d[0][0] == "C":
                 x1, y1, x2, y2, next_x, next_y = pop_x1_y1_x2_y2_x_y()
-                curve = [[x1-self.x, y1-self.y],
-                         [x2-self.x, y2-self.y],
-                         [next_x-self.x, next_y-self.y]]
+                curve = [[x1 - self.x, y1 - self.y],
+                         [x2 - self.x, y2 - self.y],
+                         [next_x - self.x, next_y - self.y]]
 
                 curve = bezier_curve_recursive(curve, 0.1)
                 # if len(curve) > 10:
@@ -456,7 +495,6 @@ class Element:
                 break
             else:
                 raise Exception("Unknown path command: " + d[0])
-
 
         # a, b, c = path["d"].split("L")
         # start_x, start_y = a[1:].split(",")
@@ -529,7 +567,6 @@ class Element:
         objs = []
         txt_objs = []
 
-
         print("NODE:", node)
 
         for fo in node.find_all("foreignobject"):
@@ -563,7 +600,6 @@ class Element:
             objs.append(txt)
             txt_objs.append(txt)
 
-
         line_objs = []
         for line in node.find_all("line"):
             ln = cls.from_svg_line(line)[0]
@@ -575,7 +611,6 @@ class Element:
                 ln.bound_elements.append(BoundElement(txt.id, txt.type))
             objs.append(ln)
             line_objs.append(ln)
-
 
         joiner_objs = line_objs
         if len(txt_objs) == 1:
@@ -684,7 +719,8 @@ class Element:
         return [self]
 
     @classmethod
-    def from_svg_tree(cls, tree: BeautifulSoup | bs4.element.Tag, tsfm_x=0., tsfm_y=0., tree_id=None) -> list["Element"]:
+    def from_svg_tree(cls, tree: BeautifulSoup | bs4.element.Tag, tsfm_x=0., tsfm_y=0., tree_id=None) -> list[
+        "Element"]:
         if tree_id is None:
             tree_id = random_id()
 
@@ -734,7 +770,6 @@ class Element:
                     link_element.y += a_tsfm_y
                 elements += link_elements
 
-
         clusters = tree.find('g', class_='clusters')
         if clusters:
             for cluster in clusters.find_all('g', class_='cluster', recursive=False):
@@ -754,7 +789,6 @@ class Element:
 
                 # for g_elt in g_elts:
                 #     g_elt.x += g_elt.width / 2
-
 
                 group_id = g.get('id', random_id())
                 for elt in g_elts + rect_elts:
