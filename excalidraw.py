@@ -527,18 +527,28 @@ class Element:
         self.width = max(x for x, y in self.points) - min(x for x, y in self.points)
         self.height = max(y for x, y in self.points) - min(y for x, y in self.points)
 
+        # TODO: I want this but it breaks cylinders
         # Clean self.points to remove any midpoints on straight lines
-        new_points = []
-        for i in range(len(self.points)):
-            if i == 0:
-                new_points.append(self.points[i])
-            elif i == len(self.points) - 1:
-                new_points.append(self.points[i])
-            elif self.points[i - 1][0] == self.points[i][0] == self.points[i + 1][0] or self.points[i - 1][1] == self.points[i][1] == self.points[i + 1][1]:
-                pass
-            else:
-                new_points.append(self.points[i])
-        self.points = new_points
+        # new_points = []
+        # for i in range(len(self.points)):
+        #     if i == 0:
+        #         new_points.append(self.points[i])
+        #     elif i == len(self.points) - 1:
+        #         new_points.append(self.points[i])
+        #     # Is it on a straight line with a slope of 0?
+        #     elif self.points[i - 1][0] == self.points[i][0] == self.points[i + 1][0] or self.points[i - 1][1] == self.points[i][1] == self.points[i + 1][1]:
+        #         pass
+        #     else:
+        #         # Is it on a near-straight line with some other slope?
+        #         try:
+        #             slope_1 = (self.points[i - 1][1] - self.points[i][1]) / (self.points[i - 1][0] - self.points[i][0])
+        #             slope_2 = (self.points[i + 1][1] - self.points[i][1]) / (self.points[i + 1][0] - self.points[i][0])
+        #             if abs(slope_1 - slope_2) < 0.0001:
+        #                 continue
+        #         except ZeroDivisionError:
+        #             pass
+        #         new_points.append(self.points[i])
+        # self.points = new_points
 
         # Check for marker-start
         if path.get("marker-start"):
@@ -547,6 +557,10 @@ class Element:
         if path.get("marker-end"):
             self.end_arrowhead = Arrowhead.TRIANGLE
             self.type = TypeEnum.ARROW
+
+        # Cylinder support
+        if self.type == TypeEnum.LINE:
+            self.stroke_sharpness = StrokeSharpness.ROUND
 
         print("Path:", self.points)
 
