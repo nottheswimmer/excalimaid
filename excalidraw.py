@@ -775,20 +775,14 @@ class Element:
             for cluster in clusters.find_all('g', class_='cluster', recursive=False):
                 rect = cluster.find('rect')
                 rect_elts = Element.from_svg_rectangle(rect, include_xy=True)
-                rect_x = rect_y = 0
-                for rect_elt in rect_elts:
-                    rect_x = rect_elt.x
-                    rect_y = rect_elt.y
-                    rect_elt.x = rect_elt.y = 0
+
                 g = cluster.find('g')
                 g_elts = Element.from_svg_node(g)
-                for g_elt in g_elts:
-                    g_elt.x -= rect_x
-                    g_elt.y -= rect_y
+
                 elements += rect_elts + g_elts
 
-                # for g_elt in g_elts:
-                #     g_elt.x += g_elt.width / 2
+                for g_elt in g_elts:
+                    g_elt.x += g_elt.width / 2
 
                 group_id = g.get('id', random_id())
                 for elt in g_elts + rect_elts:
