@@ -413,6 +413,8 @@ class Element:
         path_style = parse_style(path.get("style"))
         if "stroke-width" in path_style:
             stroke_width = path_style["stroke-width"]
+            self.stroke_sharpness = StrokeSharpness.ROUND  # Dotted / dashed lines look weird without this
+
             try:
                 if isinstance(stroke_width, str):
                     stroke_width = float(stroke_width.removesuffix("px"))
@@ -423,9 +425,6 @@ class Element:
                         self.stroke_width = stroke_width
             except Exception as e:
                 print(f"Error parsing stroke width: {e}")
-
-        # This only looks different dashed lines but it looks way better
-        self.stroke_sharpness = StrokeSharpness.ROUND
 
         if "stroke-dasharray" in path_style:
             # It might make sense canonically to do dots here instead of dashes but
