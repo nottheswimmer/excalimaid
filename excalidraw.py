@@ -366,6 +366,16 @@ class Element:
         # Get the other points
         d = path["d"].replace(",", " ").split()
 
+        # Get the stroke width if it exists
+        try:
+            stroke_width = float(path["style"].split("stroke-width:")[1].split(";")[0].removesuffix("px")) if "stroke-width" in path["style"] else 1
+        except Exception as e:
+            print(f"Error parsing stroke width: {e}")
+            stroke_width = 1
+
+        if stroke_width > 1:
+            self.stroke_width = 4
+
         def pop_x_y():
             x, y = d.pop(0), d.pop(0)
             assert x[0].isalpha()

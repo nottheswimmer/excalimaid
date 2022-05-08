@@ -11,7 +11,20 @@ def mermaid_to_svg(graph: str) -> str:
     base64_bytes = base64.b64encode(graph_bytes)
     base64_string = base64_bytes.decode("ascii")
     uri = "https://mermaid.ink/svg/" + base64_string
-    result = requests.get(uri)
+
+    e = None
+    for timeout in range(2, 9, 2):
+        try:
+            result = requests.get(uri, timeout=timeout)
+            break
+        except requests.exceptions.Timeout as e:
+            continue
+    else:
+        if e:
+            raise e
+        else:
+            raise Exception("Cosmic rays")
+
     if result.text == "invalid encoded code":
         return ""
     return result.text
