@@ -498,8 +498,8 @@ class Element:
                 curve = [[x1 - self.x, y1 - self.y],
                          [x2 - self.x, y2 - self.y],
                          [next_x - self.x, next_y - self.y]]
-
-                curve = bezier_curve_recursive(curve, 0.1)
+                if len({curve[0][0], curve[1][0], curve[2][0]}) > 1 and len({curve[0][1], curve[1][1], curve[2][1]}) > 1:
+                    curve = bezier_curve_recursive(curve, 0.1)
                 self.points.extend(curve)
 
                 cur_x, cur_y = next_x, next_y
@@ -526,6 +526,19 @@ class Element:
 
         self.width = max(x for x, y in self.points) - min(x for x, y in self.points)
         self.height = max(y for x, y in self.points) - min(y for x, y in self.points)
+
+        # Clean self.points to remove any midpoints on straight lines
+        new_points = []
+        for i in range(len(self.points)):
+            if i == 0:
+                new_points.append(self.points[i])
+            elif i == len(self.points) - 1:
+                new_points.append(self.points[i])
+            elif self.points[i - 1][0] == self.points[i][0] == self.points[i + 1][0] or self.points[i - 1][1] == self.points[i][1] == self.points[i + 1][1]:
+                pass
+            else:
+                new_points.append(self.points[i])
+        self.points = new_points
 
         # Check for marker-start
         if path.get("marker-start"):
