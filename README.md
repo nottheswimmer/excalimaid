@@ -120,6 +120,7 @@ graph
    * classDiagram
    * stateDiagram-v2
    * requirementDiagram
+   * sequenceDiagram
  * For these diagrams, not every feature is supported. This supports
    * text
    * arrows

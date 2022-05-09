@@ -197,13 +197,17 @@ def parse_transform(transform: Optional[str]) -> (float, float):
     return float(m.group(1)), float(m.group(2))
 
 
-def size_attr_to_float(attr: str) -> float:
+def size_attr_to_float(attr: str, font_size=16) -> float:
     if not attr:
         return 0.0
     attr = str(attr)
     attr = attr.replace("px", "")
+    multiplier = 1.0
+    if "em" in attr:
+        multiplier = font_size
+        attr = attr.replace("em", "")
     try:
-        return float(attr)
+        return float(attr) * multiplier
     except ValueError as e:
         print(f"Failed to parse {attr} as float: {e}")
         return 0.0
@@ -902,6 +906,12 @@ class Element:
         self.width = abs(float(line["x2"]) - self.x)
         self.height = abs(float(line["y2"]) - self.y)
         self.points = [[0, 0], [float(line["x2"]) - self.x, float(line["y2"]) - self.y]]
+        if line.get("marker-start", ""):
+            self.start_arrowhead = Arrowhead.TRIANGLE
+            self.type = TypeEnum.ARROW
+        if line.get("marker-end", ""):
+            self.end_arrowhead = Arrowhead.TRIANGLE
+            self.type = TypeEnum.ARROW
         return [self]
 
     @classmethod
@@ -1004,6 +1014,7 @@ class Element:
                         line_x = 0
                         text_y = 0
                         rect_width = 0
+                        rect_height = 0
                         had_line_x = False
                         for elt in g_elts:
                             if elt.type == TypeEnum.LINE:
@@ -1012,6 +1023,7 @@ class Element:
                                 had_line_x = True
                             elif elt.type == TypeEnum.RECTANGLE:
                                 rect_width = elt.width
+                                rect_height = elt.height
                             elif elt.type == TypeEnum.TEXT:
                                 text_y = elt.y
 
@@ -1023,12 +1035,15 @@ class Element:
                                 elt.x += line_x
                                 if not had_line_x:
                                     elt.y = text_y
-                                    elt.y -= elt.height / 2
                             elif elt.type == TypeEnum.TEXT:
                                 elt.x = line_x
                                 elt.width = rect_width
                                 elt.x -= elt.width / 2
                                 elt.text_align = TextAlign.CENTER
+                                if not had_line_x:
+                                    elt.y += rect_height / 2
+                                else:
+                                    elt.y -= elt.baseline
 
 
                     elements += g_elts
@@ -1071,9 +1086,10 @@ class Element:
                         if len(line_elts) > i:
                             for elt in text_elements:
                                 elt.x = line_elts[i].x
+                                if line_elts[i].points[-1][0] < 0:
+                                    elt.x -= line_elts[i].width
                                 elt.width = line_elts[i].width
-                                elt.y = line_elts[i].y
-
+                                elt.y = line_elts[i].y - elt.baseline - elt.height / 2
 
                     elements += text_elements
 
@@ -1098,6 +1114,8 @@ class Element:
         self.y = y
         self.text = text.text
         self.height = self.font_size = 16
+        dy = size_attr_to_float(text.get('dy'), font_size=self.font_size)
+        self.y += dy
         self.width = len(self.text) * self.font_size
         self.font_family = 2
         self.text_align = TextAlign.LEFT
