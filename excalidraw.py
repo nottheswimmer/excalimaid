@@ -647,8 +647,7 @@ class Element:
         # xmlns="http://www.w3.org/1999/xhtml">A</div></foreignobject></g></g></g>
 
         try:
-            tsfm_x = float(node["transform"].split("translate(")[1].split(",")[0])
-            tsfm_y = float(node["transform"].split("translate(")[1].split(",")[1][:-1])
+            tsfm_x, tsfm_y = parse_transform(node["transform"])
         except Exception as e:
             tsfm_x = tsfm_y = 0.0
 
@@ -718,6 +717,7 @@ class Element:
         rect_height = 0
 
         rectangle = node.find("rect")
+        rect_obj = None
         if rectangle:
             rect = cls.from_svg_rectangle(rectangle)[0]
             rect.y += tsfm_y
@@ -729,6 +729,7 @@ class Element:
                 txt.container_id = rect.id
                 rect.bound_elements.append(BoundElement(txt.id, txt.type))
             objs.append(rect)
+            rect_obj = rect
             rect_width = rect.width
             rect_height = rect.height
 
@@ -991,8 +992,46 @@ class Element:
             #  parse them by just looking for general elements.
             svg = tree.find('svg')
             if svg:
+                is_sequence_diagram = False
+
+                line_xs = []
                 for g in svg.find_all('g', recursive=False):
-                    elements += Element.from_svg_node(g)
+                    g_elts = Element.from_svg_node(g)
+
+                    # Hackfix for sequenceDiagrams
+                    if g.find("rect", class_="actor"):
+                        is_sequence_diagram = True
+                        line_x = 0
+                        text_y = 0
+                        rect_width = 0
+                        had_line_x = False
+                        for elt in g_elts:
+                            if elt.type == TypeEnum.LINE:
+                                line_x = elt.x
+                                line_xs.append(line_x)
+                                had_line_x = True
+                            elif elt.type == TypeEnum.RECTANGLE:
+                                rect_width = elt.width
+                            elif elt.type == TypeEnum.TEXT:
+                                text_y = elt.y
+
+                        if not had_line_x and line_xs:
+                            line_x = line_xs.pop(0)
+
+                        for elt in g_elts:
+                            if elt.type == TypeEnum.RECTANGLE:
+                                elt.x += line_x
+                                if not had_line_x:
+                                    elt.y = text_y
+                                    elt.y -= elt.height / 2
+                            elif elt.type == TypeEnum.TEXT:
+                                elt.x = line_x
+                                elt.width = rect_width
+                                elt.x -= elt.width / 2
+                                elt.text_align = TextAlign.CENTER
+
+
+                    elements += g_elts
 
                 for path in svg.find_all('path', recursive=False):
 
@@ -1009,6 +1048,11 @@ class Element:
                     rect_elts += Element.from_svg_rectangle(rect, include_xy=True)
                     elements += rect_elts
 
+                line_elts = []
+                for line in svg.find_all('line', recursive=False):
+                    line_elts += Element.from_svg_line(line)
+                elements += line_elts
+
                 for i, text in enumerate(svg.find_all('text', recursive=False)):
                     text_elements = Element.from_svg_text(text)
 
@@ -1020,8 +1064,15 @@ class Element:
 
                             for elt in text_elements:
                                 elt.x = rect_elts[i].x
-                                elt.width = rect_elts[0].width
+                                elt.width = rect_elts[i].width
                                 elt.y = rect_elts[i].y
+                    # Hackfix for sequenceDiagrams
+                    elif is_sequence_diagram:
+                        if len(line_elts) > i:
+                            for elt in text_elements:
+                                elt.x = line_elts[i].x
+                                elt.width = line_elts[i].width
+                                elt.y = line_elts[i].y
 
 
                     elements += text_elements
