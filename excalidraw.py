@@ -474,7 +474,7 @@ class Element:
 
             # All subsequent sets of parameters are considered implicit commands
             if d and d[0][0] not in flags:
-                d[0][0] = letter + d[0][0]
+                d[0] = letter + d[0][0]
 
             return [float(x.strip("Nn") or 0) for x in elts]
 
@@ -551,12 +551,16 @@ class Element:
                 self.points.extend(curve)
 
                 cur_x, cur_y = next_x, next_y
-            elif d[0][0] == "a":
+            elif d[0][0] in "Aa":
+                c = d[0][0]
                 try:
                     rx, ry, angle, largearcflag, sweepflag, dx, dy = pop_rx_ry_angle_largearcflag_sweepflag_dx_dy()
                 except IndexError:
                     break
-                next_x, next_y = cur_x + dx, cur_y + dy
+                if c == "A":
+                    next_x, next_y = dx, dy
+                else:
+                    next_x, next_y = cur_x + dx, cur_y + dy
                 curve = [[next_x - self.x, next_y - self.y]]
                 self.points.extend(curve)
                 cur_x, cur_y = next_x, next_y
