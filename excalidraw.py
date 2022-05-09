@@ -870,8 +870,7 @@ class Element:
     def from_svg_polygon(cls, polygon: bs4.element.Tag) -> list["Element"]:
         # <polygon class="label-container" transform="translate(-69.88050041198731,69.88050041198731)" points="69.88050041198731,0 139.76100082397463,-69.88050041198731 69.88050041198731,-139.76100082397463 0,-69.88050041198731"></polygon>
         self = cls(TypeEnum.DIAMOND)
-        self.x = float(polygon["transform"].split("translate(")[1].split(",")[0])
-        self.y = float(polygon["transform"].split("translate(")[1].split(",")[1][:-1])
+        self.x, self.y = parse_transform(polygon.get("transform"))
         pairs = polygon["points"].split(" ")
         points = []
         for pair in pairs:
