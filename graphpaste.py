@@ -37,13 +37,32 @@ def get_clipboard_as_graph():
         print(f"Warning: You seem to have accidentally added a colon to the graph. Removing it....")
         text = text.replace("graph:", "graph")
 
-    if " -> " in text:
-        print(f"Warning: You seem to have accidentally added a -> to the graph. Replacing with -->")
-        text = text.replace(" -> ", " --> ")
+    if "requirementDiagram" in text:
+        d = {
+            "perfReq": "performanceRequirement",
+            "funcReq": "functionalRequirement",
+            "functionalReq": "functionalRequirement",
+            "intReq": "interfaceRequirement",
+            "interfaceReq": "interfaceRequirement",
+            "physReq": "physicalRequirement",
+            "physicalReq": "physicalRequirement",
+            "desCon": "designConstraint",
+            "designCon": "designConstraint",
+            "Verification:": "verifymethod:",
+            "verification": "verifymethod:",
+        }
+        for k, v in d.items():
+            if f"{k} " in text:
+                print(f"Warning: Replacing '{k} ' with '{v} '")
+                text = text.replace(f"{k} ", f"{v} ")
+    else:
+        if " -> " in text:
+            print(f"Warning: You seem to have accidentally added a -> to the graph. Replacing with -->")
+            text = text.replace(" -> ", " --> ")
 
-    if " - " in text:
-        print(f"Warning: You seem to have accidentally added a - to the graph. Replacing with --")
-        text = text.replace(" - ", " -- ")
+        if " - " in text:
+            print(f"Warning: You seem to have accidentally added a - to the graph. Replacing with --")
+            text = text.replace(" - ", " -- ")
 
     if not text:
         print("Clipboard is empty")

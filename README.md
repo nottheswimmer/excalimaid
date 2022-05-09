@@ -119,6 +119,7 @@ graph
    * flowchart
    * classDiagram
    * stateDiagram-v2
+   * requirementDiagram
  * For these diagrams, not every feature is supported. This supports
    * text
    * arrows
@@ -134,6 +135,10 @@ graph
    * [styling links](https://mermaid-js.github.io/mermaid/#/flowchart?id=styling-links)
    * [shapes not mentioned](https://mermaid-js.github.io/mermaid/#/flowchart?id=node-shapes)
  * The graphpaste.py script modifies the input a little bit to remove common bugs.
-   * ` - ` is replaced with ` -- `
-   * ` -> ` is replaced with ` --> `
    * `graph:` is replaced with `graph`
+   * for everything but performanceDiagrams
+     * ` - ` is replaced with ` -- `
+     * ` -> ` is replaced with ` --> `
+   * for performanceDiagrams
+     * about a dozen replacements are done to support aliases/shortcuts I like, see graphpaste.py
+  

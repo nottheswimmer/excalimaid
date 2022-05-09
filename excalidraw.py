@@ -11,6 +11,9 @@ import bs4
 from bs4 import BeautifulSoup
 
 PREFER_DASHED_TO_DOTTED = True
+IGNORE_UNDEFINED_REQUIREMENTS = True
+IGNORE_NOT_SPECIFIED_TYPE = True
+IGNORE_NONE_DOC_REF = True
 
 
 def random_id() -> str:
@@ -192,6 +195,18 @@ def parse_transform(transform: Optional[str]) -> (float, float):
     if not m:
         return 0.0, 0.0
     return float(m.group(1)), float(m.group(2))
+
+
+def size_attr_to_float(attr: str) -> float:
+    if not attr:
+        return 0.0
+    attr = str(attr)
+    attr = attr.replace("px", "")
+    try:
+        return float(attr)
+    except ValueError as e:
+        print(f"Failed to parse {attr} as float: {e}")
+        return 0.0
 
 
 @dataclass
@@ -417,7 +432,7 @@ class Element:
 
             try:
                 if isinstance(stroke_width, str):
-                    stroke_width = float(stroke_width.removesuffix("px"))
+                    stroke_width = size_attr_to_float(stroke_width)
                     # Any stroke width of 2px or smaller should just be set to 1. For example,
                     #  a dotted line has 2px stroke width and a regular line has default stroke width
                     #  but they're visually the same.
@@ -438,8 +453,12 @@ class Element:
 
         def pop_elts(n: int):
             elts = []
-            for _ in range(n):
-                elts.append(d.pop(0))
+            for i in range(n):
+                try:
+                    elts.append(d.pop(0))
+                except Exception as e:
+                    print(f"Overpopped path {e} at {i}")
+                    raise e
             letter = elts[0][0]
             assert letter in flags, (letter, elts)
             if len(elts[0]) == 1:
@@ -457,7 +476,7 @@ class Element:
             if d and d[0][0] not in flags:
                 d[0][0] = letter + d[0][0]
 
-            return [float(x) for x in elts]
+            return [float(x.strip("Nn") or 0) for x in elts]
 
         def pop_x1_y1_x2_y2_x_y():
             return pop_elts(6)
@@ -493,6 +512,35 @@ class Element:
                 next_x, next_y = pop_x_y()
                 self.points.append([next_x - self.x, next_y - self.y])
                 cur_x, cur_y = next_x, next_y
+            elif d[0][0] == "M":
+                next_x, next_y = pop_x_y()
+                self.points.append([next_x - self.x, next_y - self.y])
+                cur_x, cur_y = next_x, next_y
+            elif d[0][0] in "Nn":
+                # Something I saw in the wild with this diagram:
+                """
+                requirementDiagram
+                performanceRequirement "No. users" {
+                 Text: 100 million
+                }   
+                performanceRequirement "No. concurrent users" {
+                 Text: 10 million
+                }
+                performanceRequirement "No. of messages" {
+                 Text: 500 million/day
+                }
+                performanceRequirement "Maximum latency" {
+                 Text: 500ms
+                }
+                element "Traffic simulation" {
+                  Type: simulation
+                }
+                "Traffic simulation" - verifies -> "No. of users"
+                "Traffic simulation" - verifies -> "Maximum latency"
+                "Traffic simulation" - verifies -> "No. of messages"
+                """
+                # Note the typo in the above withb "No. of users" instead of "No. users"
+                d.pop(0)
             elif d[0][0] == "C":
                 x1, y1, x2, y2, next_x, next_y = pop_x1_y1_x2_y2_x_y()
                 curve = [[x1 - self.x, y1 - self.y],
@@ -504,7 +552,10 @@ class Element:
 
                 cur_x, cur_y = next_x, next_y
             elif d[0][0] == "a":
-                rx, ry, angle, largearcflag, sweepflag, dx, dy = pop_rx_ry_angle_largearcflag_sweepflag_dx_dy()
+                try:
+                    rx, ry, angle, largearcflag, sweepflag, dx, dy = pop_rx_ry_angle_largearcflag_sweepflag_dx_dy()
+                except IndexError:
+                    break
                 next_x, next_y = cur_x + dx, cur_y + dy
                 curve = [[next_x - self.x, next_y - self.y]]
                 self.points.extend(curve)
@@ -640,6 +691,12 @@ class Element:
         line_objs = []
         for line in node.find_all("line"):
             ln = cls.from_svg_line(line)[0]
+
+            # Hackfix for requirements title lines
+            if "req-title-line" in line.get("class", ""):
+                ln.x -= ln.width / 2
+                ln.y -= ln.width / 2
+
             ln.y += tsfm_y
             ln.x += tsfm_x
             ln.bound_elements = []
@@ -653,6 +710,9 @@ class Element:
         if len(txt_objs) == 1:
             joiner_objs += txt_objs
 
+        rect_width = 0
+        rect_height = 0
+
         rectangle = node.find("rect")
         if rectangle:
             rect = cls.from_svg_rectangle(rectangle)[0]
@@ -665,6 +725,68 @@ class Element:
                 txt.container_id = rect.id
                 rect.bound_elements.append(BoundElement(txt.id, txt.type))
             objs.append(rect)
+            rect_width = rect.width
+            rect_height = rect.height
+
+
+        for text in node.find_all("text"):
+            txt_x, txt_y = size_attr_to_float(text.get("x")), size_attr_to_float(text.get("y"))
+            total_dy = 0
+            total_dx = 0
+            text_id = text.get("id", random_id())
+            tspans = list(text.find_all("tspan"))
+            if tspans:
+                for i, tspan in enumerate(tspans):
+                    if IGNORE_UNDEFINED_REQUIREMENTS:
+                        if tspan.text in [
+                            "Id: undefined",
+                            "Text: undefined",
+                            "Risk: undefined",
+                            "Verification: undefined",
+                        ]:
+                            continue
+                    if IGNORE_NOT_SPECIFIED_TYPE:
+                        if tspan.text == "Type: Not Specified":
+                            continue
+                    if IGNORE_NONE_DOC_REF:
+                        if tspan.text == "Doc Ref: None":
+                            continue
+                    txt = cls(TypeEnum.TEXT)
+                    tspan_x, tspan_y = size_attr_to_float(tspan.get("x")), size_attr_to_float(tspan.get("y"))
+                    total_dy += size_attr_to_float(tspan.get("dy"))
+                    total_dx += size_attr_to_float(tspan.get("dx"))
+                    txt.x = txt_x + tspan_x + total_dx + tsfm_x
+                    txt.y = txt_y + tspan_y + total_dy + tsfm_y
+                    txt.text = tspan.text
+                    txt.original_text = txt.text
+                    txt.font_size = 16
+                    txt.font_family = 2
+                    text_anchor = tspan.get("text-anchor")
+                    if text_anchor == "middle":
+                        txt.text_align = TextAlign.CENTER
+                    else:
+                        txt.text_align = TextAlign.LEFT
+                    txt.vertical_align = VerticalAlign.MIDDLE
+                    txt.baseline = txt.height - (txt.height - txt.font_size) / 2
+                    txt.id = f"{text_id}-{i}"
+                    txt.group_ids = [text_id]
+                    txt.height = txt.font_size
+                    txt.width = rect_width or (len(txt.text) * txt.font_size)
+                    if rect_width:
+                        txt.x -= rect_width / 2
+                    if rect_height:
+                        txt.y -= rect_height / 2
+                    objs.append(txt)
+
+                    # Hackfix: Top of requirementsDiagram not aligned
+                    if txt.text_align == TextAlign.CENTER:
+                        txt.x -= txt.width
+
+                    txt_objs.append(txt)
+            else:
+                txt = cls.from_svg_text(text)[0]
+                txt.x += tsfm_x
+                txt.y += tsfm_y
 
         polygon = node.find("polygon")
         if polygon:
@@ -726,8 +848,8 @@ class Element:
                 # Pretty sure that's an ellipse
                 self.type = TypeEnum.ELLIPSE
 
-        self.height = float(rectangle["height"])
-        self.width = float(rectangle["width"])
+        self.height = size_attr_to_float(rectangle["height"])
+        self.width = size_attr_to_float(rectangle["width"])
         if include_xy:
             if rectangle.get("x", "0") != "0":
                 self.x = float(rectangle["x"])
@@ -860,6 +982,46 @@ class Element:
 
                 print("RECT_ELTS", rect_elts)
 
+        if not elements:
+            # There are other kinds of graphs that don't adhere to the format above. Let's make a best effort to
+            #  parse them by just looking for general elements.
+            svg = tree.find('svg')
+            if svg:
+                for g in svg.find_all('g', recursive=False):
+                    elements += Element.from_svg_node(g)
+
+                for path in svg.find_all('path', recursive=False):
+
+                    path_elements = Element.from_svg_path(path)
+                    # Hackfix for requirementDiagrams
+                    if "relationshipLine" in path.get('class', ''):
+                        for elt in path_elements:
+                            elt.x -= 100
+                            elt.y -= 100
+                    elements += path_elements
+
+                rect_elts = []
+                for rect in svg.find_all('rect', recursive=False):
+                    rect_elts += Element.from_svg_rectangle(rect, include_xy=True)
+                    elements += rect_elts
+
+                for i, text in enumerate(svg.find_all('text', recursive=False)):
+                    text_elements = Element.from_svg_text(text)
+
+                    # Hackfix for requirementDiagrams
+                    if "relationshipLabel" in text.get('class', ''):
+                        if len(rect_elts) > i:
+                            rect_elts[i].x -= 100
+                            rect_elts[i].y -= 100
+
+                            for elt in text_elements:
+                                elt.x = rect_elts[i].x
+                                elt.width = rect_elts[0].width
+                                elt.y = rect_elts[i].y
+
+
+                    elements += text_elements
+
         for element in elements:
             element.x += tsfm_x
             element.y += tsfm_y
@@ -871,6 +1033,34 @@ class Element:
                     element.group_ids = [tree_id]
 
         return elements
+
+    @classmethod
+    def from_svg_text(cls, text):
+        self = cls(TypeEnum.TEXT)
+        x = size_attr_to_float(text.get('x'))
+        y = size_attr_to_float(text.get('y'))
+        self.x = x
+        self.y = y
+        self.text = text.text
+        self.height = self.font_size = 16
+        self.width = len(self.text) * self.font_size
+        self.font_family = 2
+        self.text_align = TextAlign.LEFT
+        self.vertical_align = VerticalAlign.MIDDLE
+        self.baseline = self.height - (self.height - self.font_size) / 2
+        if text.get("text-anchor") == "middle":
+            self.text_align = TextAlign.CENTER
+        elif text.get("text-anchor") == "end":
+            self.text_align = TextAlign.RIGHT
+        if text.get("dominant-baseline") == "middle":
+            self.vertical_align = VerticalAlign.MIDDLE
+        elif text.get("dominant-baseline") == "hanging":
+            self.vertical_align = VerticalAlign.TOP
+        elif text.get("dominant-baseline") == "text-after-edge":
+            self.vertical_align = VerticalAlign.BOTTOM
+        self.id = text.get('id', random_id())
+        return [self]
+
 
 
 @dataclass

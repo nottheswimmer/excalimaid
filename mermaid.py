@@ -26,6 +26,7 @@ def mermaid_to_svg(graph: str) -> str:
             raise Exception("Cosmic rays")
 
     if result.text == "invalid encoded code":
+        print(result.text)
         return ""
     return result.text
 
